@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>My first Backbone app!</title>
+  <!-- would be better to not reference link each time, but can use for now -->
+  <link rel="stylesheet" href="http://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/2.1.1/css/bootstrap.min.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Sam's Users</h1>
+    <hr />
+    <div class="page">
+    </div>
+  </div>
+
+  <script type="text/template" id="user-list-template">
+  <a href="#/new" class="btn btn-primary">New User</a><hr />
+    <table class="table stripes">
+      <thead>
+        <tr>
+          <th> First Name </th>
+          <th> Last Name </th>
+          <th> Age </th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% _.each(users, function (user){ %>
+          <tr>
+            <td><%= user.get('firstname') %></td>
+            <td><%= user.get('lastname') %></td>
+            <td><%= user.get('age') %></td>
+            <td><a href="#/edit/<%= user.id %>" class="btn">Edit</a></td>
+          </tr>
+
+        <% }); %>
+      </tbody>
+    </table>
+  </script>
+
+  <script type="text/template" id="edit-user-template">
+    <form class="edit-user-form">
+    <legend><%= user ? "Edit" : "Create" %> User</legend>
+    <label>First Name</label>
+    <input type="text" name="firstname" value="<%= user ? user.get('firstname') : '' %>" />
+    <label>Last Name</label>
+    <input type="text" name="lastname" value="<%= user ? user.get('lastname') : '' %>" />
+    <label>Age</label>
+    <input type="text" name="age" value="<%= user ? user.get('age') : '' %>" />
+    <hr />
+    <button type="submit" class="btn"><%= user ? "Edit" : "Create" %></button>
+    <% if(user) { %>
+      <input type="hidden" name="id" value="<%= user.id %>" />
+      <button class="btn btn-danger delete">Delete</button>
+    <% }; %>
+    </form>
+  </script>
+
+  <!-- dependencies for backbone -->
+  <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery/1.8.2/jquery.min.js" type="text/javascript"></script>
+  <script src="http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.2/underscore-min.js" type="text/javascript"></script>
+
+  <script src="http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"></script>
+
+  <script>
+  // found on stackoverflow; jQuery does not support serialization of form data natively, so someone wrote this to to do it for us; author of tutorial uses this often
+  $.fn.serializeObject = function() {
+    var o = {};
+    var a = this.serializeArray();
+    $.each(a, function() {
+        if (o[this.name] !== undefined) {
+            if (!o[this.name].push) {
+                o[this.name] = [o[this.name]];
+            }
+            o[this.name].push(this.value || '');
+        } else {
+            o[this.name] = this.value || '';
+        }
+    });
+    return o;
+  };
+  // need to load ajaxPrefilter since we are running on a local server; if we don't, the AJAX calls will be fired to localhost instead of remote server; hooks into all ajax requests and allows us to modify base url for all ajax requests; before a request is fired, we prepend the heroku server
+  $.ajaxPrefilter( function( options, originalOptions, jqXHR ) {
+      options.url = 'http://backbonejs-beginner.herokuapp.com' + options.url;
+    });
+
+  var Users = Backbone.Collection.extend({
+    url: '/users'
+  });
+
+  var User = Backbone.Model.extend({
+    urlRoot: '/users'
+  });
+
+    //each view is assigned an element; element is container for the view; anything happening inside view should happen inside children of element; view should not out-reach its own element
+    var UserList = Backbone.View.extend({
+      el: ".page",
+      // render function is in charge of rendering view to page, loading template, etc.
+      render: function (){
+        // must assign this to a variable, or else it has no scope and will throw an error when you try to call .html on it
+        var self = this;
+        var users = new Users();
+        users.fetch({
+          success: function (users){
+            var template = _.template($("#user-list-template").html(), {users: users.models});
+            // $el references cased element
+            self.$el.html(template);
+          }
+        })
+      }
+    });
+
+    var EditUser = Backbone.View.extend({
+      el: ".page",
+      render: function (options){
+        var self = this;
+        // if id is present, bring details and populate form, else just render blank form
+        if(options.id) {
+          self.user = new User({id: options.id});
+          self.user.fetch({
+            success: function (user) {
+              var template = _.template($("#edit-user-template").html(), {user: user});
+              self.$el.html(template);
+            }
+          })
+        } else {
+        var template = _.template($("#edit-user-template").html(), {user: null});
+        // $el references cased element
+        this.$el.html(template);
+        }
+      },
+      events: {
+        'submit .edit-user-form': 'saveUser',
+        'click .delete': 'deleteUser'
+      },
+      saveUser: function (e) {
+        var userDetails = $(e.currentTarget).serializeObject();
+        var user = new User();
+        // first value is what we want to send to the server (so, userDetails), and the second parameter is an options hash
+        user.save(userDetails, {
+          success: function (user) {
+            router.navigate('', {trigger: true});
+          }
+        });
+        return false;
+      },
+      deleteUser: function (e) {
+        this.user.destroy({
+          success: function () {
+            router.navigate('', {trigger: true});
+          }
+        });
+        return false;
+      }
+    })
+
+  // Backbone router takes an object, routes
+    var Router = Backbone.Router.extend({
+      routes: {
+        '': 'home',
+        'new': 'editUser',
+        'edit/:id': 'editUser'
+      }
+    });
+
+    var userList = new UserList();
+    var editUser = new EditUser();
+
+    var router = new Router();
+    router.on('route:home', function(){
+      userList.render();
+    });
+    router.on('route:editUser', function (id){
+      editUser.render({id: id});
+    });
+
+    // tells Backbone to start listening to the url; nothing will happen until we include this line
+    Backbone.history.start();
+  </script>
+
+</body>
+</html>
